@@ -4,3 +4,5 @@ venv/
 component0_profile_store/profile_state.json
 component0_profile_store/preferences.json
 component0_profile_store/resumes/*.pdf
+
+.env
