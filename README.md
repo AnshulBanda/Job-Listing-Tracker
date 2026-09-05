@@ -2,34 +2,30 @@
 
 A GenAI system that monitors job/internship alert emails, matches opportunities against my resume(s) and stated preferences, and surfaces everything in Notion with a fit score, reasoning, and apply link — plus a calendar of tests, interviews, and deadlines.
 
-Built during campus placement season as a way to stop manually tracking every job alert across 8+ sources, while also serving as a portfolio project.
+Built during campus placement season as a way to stop manually tracking every job alert across nine planned sources plus company alerts, while also serving as a portfolio project.
+
+## Documentation
+
+- [Project blueprint](docs/blueprint.md): architecture, scope, and database schemas.
+- [Current checkpoint](docs/checkpoint.md): verified progress, decisions, limitations, and next steps.
 
 ## Architecture
 
 ```text
-[Resume folder]     [Gmail inbox]
-       │                  │
-       ▼                  ▼
-[0. Profile Store] ◄── re-parses on ── [1. Ingestion]
-       │                              pulls new alert emails
-       │
-       │ (feeds current profile state)
-       ▼
-[2. Extraction] — LLM parses each raw
-email into structured JSON
-       │
-       ▼
-[3. Matching] — LLM scores structured postings
-against current profile state
-       │
-       ▼
-[4. Notion sync] — writes opportunities + deadlines
-into Notion databases
+[Resume folder] -> [0. Profile Store] ----------------------+
+                                                          |
+[Gmail inbox] -> [1. Ingestion] -> [2. Extraction] -> [3. Matching]
+                                                          |
+                                                          v
+                                                  [4. Notion sync]
+                                                   /            \
+                                         Job Opportunities   Placement Calendar
 ```
 
 ## Status
 
 * [x] **Component 0 — Resume/Profile Store**: parses resume PDFs into structured JSON via a local LLM, with hash-based change detection so unchanged resumes are never re-parsed. Supports multiple resume versions (SWE, Data Science, and future GenAI/Cloud versions).
+* [x] **Notion database setup**: both schemas and their one-way relation verified; sequential reruns reuse existing databases. Schedule calendar view configured manually.
 * [ ] **Component 1 — Gmail ingestion**
 * [ ] **Component 2 — Email extraction**
 * [ ] **Component 3 — Matching**
@@ -58,7 +54,9 @@ Watches a `resumes/` folder and turns each resume PDF into structured profile da
 * **Local LLM:** Ollama (`llama3.1:8b`)
 * **PDF parsing:** pdfplumber
 * **Schema validation:** Pydantic
-* **Planned:** Gmail API, Notion API, `watchdog` (folder watching)
+* **Notion setup:** `notion-client` + `python-dotenv`
+* **Folder watching:** `watchdog`
+* **Planned:** Gmail API and automated Notion entry synchronization
 
 ## Setup
 
@@ -77,6 +75,25 @@ Copy resume PDF(s) into `component0_profile_store/resumes/`, and copy `component
 cd component0_profile_store
 py -c "from store import sync_resumes; sync_resumes()"
 ```
+
+## Notion Database Setup
+
+Create a parent page in Notion, connect the JobsApplier integration, and set these variables in a project-root `.env` file (gitignored):
+
+```dotenv
+NOTION_TOKEN=<your integration token>
+NOTION_PARENT_PAGE_ID=<your parent page ID>
+```
+
+Run from the project root:
+
+```powershell
+.\venv\Scripts\python.exe .\component_notion\setup_databases.py
+```
+
+The script creates Job Opportunities and Placement Calendar when missing, or reuses direct child databases with the same titles. It uses `initial_data_source.properties` and links calendar events to the Job Opportunities data source. Reuse does not migrate or repair existing schemas, and renamed databases or concurrent runs can cause duplicates.
+
+Add a Calendar view named Schedule to Placement Calendar, using its Date property. Date supports optional times; separate rows allow multiple events on one day. The script creates the schemas, not the view or automated entry synchronization.
 
 ## Notes
 
