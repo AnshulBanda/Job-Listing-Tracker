@@ -184,13 +184,14 @@ Each step can be built and tested independently against sample/mock data before 
 
 - **Career-page scraping (e.g. Amazon Jobs)** — considered as a 10th+ ingestion source, to catch postings that don't come through email alerts. Not an Ollama-only solve — would need an actual scraper (requests/BeautifulSoup or Playwright for JS-heavy sites) feeding the existing Extraction step, since Ollama can't fetch live pages itself. Higher fragility than email (DOM structure breaks silently on redesign) vs. company-specific email alerts. **Decision: deferred.** First check whether target companies (starting with Amazon) offer a "job alerts" email subscription on their careers page — if so, that fits the existing Component 1 allowlist mechanism with zero new code. Only build a real scraper later, after Gmail ingestion (the 9 fixed sources + allowlist) is fully working end-to-end, and check for a stable ATS JSON API (Greenhouse/Lever/Workday) before defaulting to raw DOM scraping.
 
-## 10. Status Tracker (updated 2026-09-05)
+## 10. Status Tracker (updated 2026-09-09)
 
 - [ ] Alerts set up on all 9 sources (LinkedIn + Naukri done so far)
 - [x] Resume(s) + preferences provided
 - [x] Notion databases created and verified; one-way relation and Schedule view configured — see [checkpoint.md](checkpoint.md)
 - [x] Resume/Profile Store (re-parses on update) working — includes `watcher.py`
-- [ ] Gmail ingestion working
+- [x] PES Placements Gmail ingestion milestone: OAuth, pagination, body decoding, local records, and retry/skip behavior verified
+- [ ] Gmail ingestion complete across all fixed sources and company allowlist
 - [ ] Extraction step working
 - [ ] Matching step working
 - [ ] Notion sync working
@@ -204,3 +205,13 @@ Each step can be built and tested independently against sample/mock data before 
 - The script searches all batches of direct child blocks by exact database title and reuses matches on sequential reruns. It does not migrate existing schemas or protect against concurrent runs, duplicate titles, or renamed databases.
 - The user created a Schedule calendar view based on Date and confirmed two test events appeared on the same date.
 - Database setup is complete; automated Notion entry synchronization is still a future component.
+
+## 12. Implemented Gmail Ingestion Details
+
+- Read-only OAuth and ingestion are implemented in `component1_gmail/auth.py` and `component1_gmail/ingest.py`.
+- Current scope is the two PES senders from section 3b over a rolling 30-day window, including read emails. The other sources and company allowlist remain planned.
+- Paginated message listing feeds recursive body decoding, plain-text preference within alternative groups, and HTML fallback preserving URLs. Attachments are excluded from body processing.
+- Each downloaded email is stored as UTF-8 JSON under its Gmail message ID, retaining thread ID, dates, sender, subject, source, and full selected body. Existing files are skipped; this does not mark downstream processing complete.
+- Ingestion API calls use up to seven retries with client-managed exponential backoff. The verified live run covered 239 records; the repeat run saved zero and skipped 239.
+- OAuth credentials, tokens, and email records remain local and gitignored. Record writes are not atomic and existing files are not validated before skipping.
+- See [checkpoint.md](checkpoint.md) for validation evidence, current limitations, and next steps. Semantic extraction, personal shortlist determination, matching, and Notion synchronization are still future components.

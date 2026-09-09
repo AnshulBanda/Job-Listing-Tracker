@@ -1,10 +1,10 @@
 # JobsApplier — Current Project Checkpoint
 
-Updated: 2026-09-05
+Updated: 2026-09-09
 
 Repository: https://github.com/AnshulBanda/Job-Listing-Tracker
 
-Architecture and scope: [blueprint.md](blueprint.md). This checkpoint replaces the older root-level `project_checkpoint.md` and incorporates the newer supplied checkpoint plus the verified Notion setup work.
+Architecture and scope: [blueprint.md](blueprint.md). This checkpoint replaces the older root-level `project_checkpoint.md` and incorporates the newer supplied checkpoint plus the verified Notion setup and PES Gmail ingestion work.
 
 ## Working style
 
@@ -44,6 +44,12 @@ JobsApplier/
 │   ├── preferences.json            # hand-edited, gitignored
 │   ├── profile_state.json          # generated, gitignored
 │   └── resumes/                    # PDF files gitignored
+├── component1_gmail/
+│   ├── auth.py
+│   ├── ingest.py
+│   ├── credentials.json           # local only, gitignored
+│   ├── token.json                 # generated, gitignored
+│   └── data/                      # downloaded email JSON, gitignored
 └── component_notion/
     └── setup_databases.py
 ```
@@ -61,13 +67,45 @@ JobsApplier/
 - [x] User configured a Schedule calendar view based on Date.
 - [x] User confirmed two manual test events appeared on the same day after instructions to assign different times and link both to one opportunity. Event times and links were not independently read back.
 - [ ] Alerts on all nine sources: only LinkedIn and Naukri confirmed so far.
-- [ ] Gmail ingestion and OAuth (Component 1).
+- [x] Read-only Gmail OAuth and PES Placements ingestion milestone.
+- [ ] Complete Component 1: remaining fixed sources, company allowlist, and ingestion hardening.
 - [ ] Email extraction (Component 2).
 - [ ] Matching (Component 3).
 - [ ] Automated Notion entry synchronization (Component 4).
 - [ ] Orchestration (Component 5).
 
 The manual test entries were labelled TEST. Cleanup was suggested but has not been confirmed.
+
+## Gmail ingestion milestone (2026-09-09)
+
+- Google Cloud project and Gmail API configured. The project belongs to the secondary account; the official mailbox is authorized as an External app test user. The app remains in Testing.
+- `component1_gmail/auth.py` requests `gmail.readonly`, loads saved tokens, refreshes expired access when possible, and opens browser authorization when needed. Running it directly checks the connected mailbox.
+- `component1_gmail/ingest.py` searches both confirmed PES senders with `newer_than:30d`, including read emails. Other sources and company allowlist matching are not implemented; Source is currently fixed to PES Placements.
+- Pagination follows `nextPageToken` with pages of up to 100 IDs. Each unsaved message is fetched with `format="full"`.
+- Body handling decodes base64url and declared character encodings, retrieves separately stored body data, prefers plain text within alternative groups, and combines separate multipart sections. HTML fallback removes script/style/head content and preserves link destinations as text. Named attachments and attachment-disposition parts are excluded.
+- UTF-8 JSON records contain message ID, thread ID, source, sender, subject, original Date header, internal timestamp, full selected body, and body source. Records are saved as `data/<message_id>.json`; only console previews are truncated to 400 characters.
+- Existing files are skipped. This is download deduplication, not extraction or Notion processing status.
+- A live run encountered a 403 `rateLimitExceeded` per-minute quota error. All three ingestion API call sites now use `execute(num_retries=7)` for the client's bounded randomized exponential backoff.
+- User-reported successful continuation: `132 saved, 107 already downloaded`. Repeat run: `0 saved, 239 already downloaded`. These counts describe that run's rolling 30-day query, not a permanent mailbox total.
+- Local mock checks passed for pagination, skipped records, fetch IDs, save counts, nested mixed sections, alternative selection, HTML links, empty bodies, and attachment exclusion. Initial five saved records were also checked for expected fields, UTF-8 JSON, and matching filenames.
+- Credentials, tokens, and downloaded email data are gitignored and were confirmed untracked.
+
+### Remaining limitations
+
+- JSON and token writes are not atomic. Existing files are skipped without validation; an interrupted write could leave a damaged record that requires repair before retrying.
+- Retries are bounded. Exhausted retries and other unhandled errors stop the run; earlier saved files remain available. No proactive request pacing or per-message failure report exists yet.
+- The query is a rolling 30-day window, not a durable synchronization cursor. A long gap between runs could miss older messages.
+- Body extraction is not full attachment processing. Candidate lists, images, and attached/embedded emails are not interpreted. A shortlist email does not establish the user's personal outcome without supporting evidence.
+- Plain-text alternatives can omit URLs present only in HTML. Links are preserved when HTML fallback is used; comprehensive link collection remains future work.
+- The OAuth refresh path does not recover automatically from revoked or invalid refresh tokens. Testing-mode authorization may require renewed consent.
+- New opportunities, administrative updates, shortlist outcomes, and replies changing earlier details still need semantic extraction and reconciliation. Preserve message/thread IDs and dates for that step.
+
+Run from the project root:
+
+```powershell
+.\venv\Scripts\python.exe .\component1_gmail\auth.py
+.\venv\Scripts\python.exe .\component1_gmail\ingest.py
+```
 
 ## Notion setup decisions and behavior
 
@@ -119,9 +157,9 @@ Run from the project root:
 
 ## Git state and next steps
 
-Remote main was verified at `545261f`, the merge of PR #2 for the initial Notion setup. The Desktop checkout remains on `feature/notion-schema-setup`; the completed setup and documentation are uncommitted at the time of this checkpoint.
+The checkout was verified on `feature/notion-setup-docs` at `146668b` (Complete Notion setup and organize project docs). The earlier Notion/documentation milestone is committed. Gmail source files, dependency/ignore changes, and this documentation update are uncommitted for the current milestone. The assistant has not created a branch, committed, or pushed. The current remote main/merge status has not been refreshed in this turn.
 
-1. Review changes, create a new feature branch, commit this milestone, and push it. The user is handling Git commands.
-2. Begin Gmail ingestion with Google Cloud project/OAuth setup and a minimal read-only email pull.
-3. Add sender matching for nine fixed sources and company allowlist entries; collect sample alerts for extraction.
-4. Continue extraction, matching, Notion sync, and orchestration after ingestion is working.
+1. Create a new feature branch from the current checkout, review and commit the PES ingestion milestone, then push it. The user handles Git commands.
+2. Add LinkedIn and Naukri using actual alert sender addresses, then the remaining fixed sources and explicit company allowlist.
+3. Improve record-write integrity, saved-record validation, and error reporting before broader use.
+4. Continue structured email extraction, matching, Notion sync, and orchestration. Update existing events when replies change details rather than treating every email as a new opportunity.
