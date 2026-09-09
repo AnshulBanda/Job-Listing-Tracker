@@ -26,7 +26,8 @@ Built during campus placement season as a way to stop manually tracking every jo
 
 * [x] **Component 0 — Resume/Profile Store**: parses resume PDFs into structured JSON via a local LLM, with hash-based change detection so unchanged resumes are never re-parsed. Supports multiple resume versions (SWE, Data Science, and future GenAI/Cloud versions).
 * [x] **Notion database setup**: both schemas and their one-way relation verified; sequential reruns reuse existing databases. Schedule calendar view configured manually.
-* [ ] **Component 1 — Gmail ingestion**
+* [x] **PES Gmail ingestion milestone**: read-only OAuth, paginated downloads, body decoding, local JSON records, retries, and rerun skipping verified.
+* [ ] **Component 1 — remaining Gmail sources**: other fixed sources, company allowlist, and ingestion hardening.
 * [ ] **Component 2 — Email extraction**
 * [ ] **Component 3 — Matching**
 * [ ] **Component 4 — Notion sync**
@@ -56,7 +57,9 @@ Watches a `resumes/` folder and turns each resume PDF into structured profile da
 * **Schema validation:** Pydantic
 * **Notion setup:** `notion-client` + `python-dotenv`
 * **Folder watching:** `watchdog`
-* **Planned:** Gmail API and automated Notion entry synchronization
+* **Email:** Gmail API + Google OAuth client libraries
+* **HTML parsing:** Beautiful Soup
+* **Planned:** structured email extraction, matching, and automated Notion entry synchronization
 
 ## Setup
 
@@ -95,6 +98,25 @@ The script creates Job Opportunities and Placement Calendar when missing, or reu
 
 Add a Calendar view named Schedule to Placement Calendar, using its Date property. Date supports optional times; separate rows allow multiple events on one day. The script creates the schemas, not the view or automated entry synchronization.
 
+## Component 1: PES Gmail Ingestion
+
+Enable Gmail API in a Google Cloud project. Configure an External OAuth app for personal Gmail use, add the intended mailbox as a test user, add the `gmail.readonly` scope, and create a Desktop app OAuth client. The project owner and authorized mailbox can be different accounts.
+
+Save the downloaded client JSON as `component1_gmail/credentials.json`. Dependencies are included in `requirements.txt`. Run from the project root:
+
+```powershell
+.\venv\Scripts\python.exe .\component1_gmail\auth.py
+.\venv\Scripts\python.exe .\component1_gmail\ingest.py
+```
+
+Authorize the mailbox receiving placement alerts. `auth.py` stores authorization in `component1_gmail/token.json` and checks the connected mailbox. `ingest.py` retrieves emails from `placementsupport@pes.edu` and `pesuplacements@pes.edu` within the last 30 days, including read messages.
+
+The reader follows all result pages, selects plain text within alternative groups, and uses HTML fallback with link URLs preserved. Separate multipart body sections are retained; attachments are excluded. Full selected bodies and message metadata are saved to `component1_gmail/data/<message_id>.json`. Existing files are skipped on later runs. The verified repeat run reported `0 saved, 239 already downloaded`.
+
+Temporary API failures are retried up to seven times with randomized exponential backoff. Exhausted retries stop the run; previously saved records can be skipped on restart. File writes are not atomic, and existing records are not validated before skipping. Downloading an email does not classify it or sync it to Notion. Other sources and the company allowlist remain planned.
+
 ## Notes
 
 `profile_state.json`, `preferences.json`, and resume PDFs are gitignored — they contain personal data. `preferences.example.json` is included as a template.
+
+Gmail `credentials.json`, `token.json`, and the entire `component1_gmail/data/` directory are also gitignored. Do not commit OAuth credentials or downloaded email records.

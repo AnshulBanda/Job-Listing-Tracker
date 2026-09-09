@@ -6,3 +6,10 @@ component0_profile_store/preferences.json
 component0_profile_store/resumes/*.pdf
 
 .env
+
+# Gmail OAuth credentials and authorization tokens
+component1_gmail/credentials.json
+component1_gmail/token.json
+
+# Downloaded email content
+component1_gmail/data/
