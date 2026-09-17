@@ -13,3 +13,6 @@ component1_gmail/token.json
 
 # Downloaded email content
 component1_gmail/data/
+
+# Local tracking database and SQLite sidecar files
+data/
