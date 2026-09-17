@@ -4,10 +4,31 @@ from email.message import Message
 from bs4 import BeautifulSoup
 import json
 from pathlib import Path
+from email.utils import parseaddr
+import sys
 
-# Include read emails too, so opening an alert doesn't exclude it.
-PES_QUERY = (
-    "{from:placementsupport@pes.edu from:pesuplacements@pes.edu} "
+# Allow this directly-run script to import from the project root.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from component2_extraction.storage import (
+    initialize_database,
+    register_email,
+    get_processed_message_ids,
+)
+
+
+# Map each confirmed sender to its source label.
+SOURCE_SENDERS = {
+    "placementsupport@pes.edu": "PES Placements",
+    "pesuplacements@pes.edu": "PES Placements",
+    "jobalerts-noreply@linkedin.com": "LinkedIn Jobs",
+}
+
+# Gmail's braces mean OR: match any listed sender.
+# Include read emails and keep the existing 30-day window.
+ALERT_QUERY = (
+    "{" + " ".join(f"from:{sender}" for sender in SOURCE_SENDERS) + "} "
     "newer_than:30d"
 )
 
@@ -136,12 +157,19 @@ def extract_body(service, message_id, payload):
 
 def save_email_record(email, headers, body_text, body_source):
     """Save one email as a local JSON record."""
+     # Extract the address from "Display Name <address@example.com>".
+    sender = parseaddr(headers.get("from", ""))[1].strip().lower()
+    source = SOURCE_SENDERS.get(sender)
+
+    # Don't save an unexpected sender under an incorrect source.
+    if source is None:
+        raise ValueError(f"Unrecognized alert sender: {sender!r}")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     record = {
         "message_id": email["id"],
         "thread_id": email["threadId"],
-        "source": "PES Placements",
+        "source": source,
         "from": headers.get("from", ""),
         "subject": headers.get("subject", ""),
         "date": headers.get("date", ""),
@@ -155,7 +183,8 @@ def save_email_record(email, headers, body_text, body_source):
         json.dumps(record, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-
+    # Record the download only after its JSON file is successfully saved.
+    register_email(record)
     return output_path
 
 def iter_message_ids(service, query):
@@ -178,19 +207,35 @@ def iter_message_ids(service, query):
             break
 
 def main():
+    initialize_database()
+    processed_ids = get_processed_message_ids()
     service = get_gmail_service()
 
     saved_count = 0
     skipped_count = 0
 
-    for message_id in iter_message_ids(service, PES_QUERY):
+    for message_id in iter_message_ids(service, ALERT_QUERY):
         output_path = DATA_DIR / f"{message_id}.json"
 
-        # A saved record means this email was already downloaded.
-        if output_path.exists():
+        # Completed emails stay skipped even after raw-file cleanup.
+        if message_id in processed_ids:
             skipped_count += 1
             continue
 
+        if output_path.exists():
+            saved_email = json.loads(
+                output_path.read_text(encoding="utf-8")
+            )
+
+            if saved_email["message_id"] != message_id:
+                raise ValueError(
+                    f"Message ID mismatch: {output_path.name}"
+                )
+
+            register_email(saved_email)
+            skipped_count += 1
+            continue
+        
         # Fetch the full message, including headers and body parts.
         email = service.users().messages().get(
             userId="me",
